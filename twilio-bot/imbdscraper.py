@@ -1,18 +1,10 @@
-'''TODO:
-#connect to Twilio / SMS service
-#look into how to remove whitespace from cast / not get html ghost element
-#look into how to get x movies if some are skipped bc of ratings (list?)
-#maybe use a dictionary?
-#why did the output speed decrease so much?
-#clean up this mess
-'''
-
 import bs4
 import requests
+from urllib.request import Request, urlopen
 from datetime import datetime, timedelta
 
-def scrapeData():
 
+def getMovies():
     #Set the range of release dates, from x months ago to last month
     today = datetime.today()
     months = 7
@@ -21,65 +13,126 @@ def scrapeData():
     dateFrom = (today - timedelta(days=31*months-offset)).strftime('%Y-%m-%d')
 
     #Get and set up the webpage
-    res = requests.get('https://www.imdb.com/search/title/?title_type=feature&release_date='+str(dateFrom)+','+str(lastMonth)+'&countries=us&languages=en')
+    url = 'https://www.imdb.com/search/title/?title_type=feature&release_date='+str(dateFrom)+','+str(lastMonth)+'&countries=us&languages=en'
+    res = requests.get(url)
     res.raise_for_status()
-
     soup = bs4.BeautifulSoup(res.text, 'html.parser')
+    
+    movieContainers = soup.find_all('div', class_ = 'lister-item mode-advanced')
+    
+    return movieContainers
 
-    #parse x movies
-    numMovies = 16
-    for x in range(1, numMovies):
+#Retrieve the top movies from a certain time period in a list
+def getTopMovies():
+    movieContainers = getMovies()
+    topMovies = []
+    limit = 15
+ 
+    #Get movie titles
+    for i in range(limit):
+        movie = movieContainers[i]
+        title = movie.h3.a.text
+        topMovies.append(title)
 
-        #get title
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > h3:nth-child(1) > a:nth-child(2)')
-        title = elem[0].text.strip()
+    return topMovies
 
-        #get ratings and votes
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > strong:nth-child(2)')
-        userRating = elem[0].text.strip()
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(6) > span:nth-child(2)')
-        userVotes = elem[0].text.strip()
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > div:nth-child(3) > div:nth-child(3) > span:nth-child(1)')
-        if len(elem) != 0:
-            metascore = elem[0].text.strip()
-        else:
-            metascore = 'N/A '
+#Format the list of movies into a string for the text message
+def moviesString(movieList):
+    output = ''
+    for i in range(len(movieList)):
+        output += str(i+1) + '. ' + movieList[i] + '\n'
+
+    return output
+
+def getMovieInfo(movie):
+    #for movie in movielist:
+    #if title == movie
+    #get info and store in list
+    movieInfo = {}
+    movieContainers = getMovies()
+    for container in movieContainers:
+        title = container.h3.a.text
+        if title.lower() == movie:
+
+            year = container.h3.find('span', class_ = 'lister-item-year text-muted unbold')
+            year = year.text
+
+            rating = container.p.find('span', class_ = 'certificate').text
+            runtime = container.p.find('span', class_ = 'runtime').text
+
+            genres = container.p.find('span', class_ = 'genre').text.strip()
+
+            summary = container.find_all('p', class_ = 'text-muted')
+            summary = summary[1].text.strip()
+
+            '''
+            needs more cleaning/formatting:
+            castcrew = movie.find('p', class_ = "").text.strip()
+            print(castcrew)
+            '''
+
+            imdb = float(container.strong.text)
+
+            #Get metascore if it exists (fix)
+            if container.find('span', class_ = 'metascore favorable') is not None:
+                metascore = container.find('span', class_ = 'metascore favorable')
+            elif container.find('span', class_ = 'metascore mixed') is not None:
+                metascore = container.find('span', class_ = 'metascore mixed')
+            else:
+                container = container.find('span', class_ = 'metascore unfavorable')
+            metascore = int(metascore.text)
+
+            movieInfo = {
+                'title': title,
+                'year': year,
+                'rating': rating,
+                'runtime': runtime,
+                'genres': genres,
+                'summary': summary,
+                'imdb': imdb,
+                'metascore': metascore
+                }
+
+    return movieInfo
+                  
+def stringMovieInfo(movieInfo):
+    
+    output = ''
+    
+    output += movieInfo['title'] + ' ' + movieInfo['year'] + '\n'
+    output += movieInfo['rating'] + ' | ' + movieInfo['runtime'] + '\n'
+    output += movieInfo['genres'] + '\n'
+    output += movieInfo['summary'] + '\n'
+    output += 'IMDb rating: ' + str(movieInfo['imdb']) + '\n'
+    output += 'Metascore: ' + str(movieInfo['metascore'])
+    print(output)
+
+    return output
+
+def getWebpage(url):
+    
+    res = Request(url)
+    #res.raise_for_status()
+    webpage = urlopen(res).read()
+    soup = bs4.BeautifulSoup(webpage, 'html.parser')
+
+    return soup
+
+#TODO
+def getMovieTrailer(movie):
+
+    inner_soup = getWebpage(movie["imdb_link"])
+    print(inner_soup)
+    
 
 
-        #Skip poorly rated movies
-        #might not matter much since results are sorted by popularity
-        if (float(userRating) < 5 and int(metascore) < 50):
-            continue
-
-        '''#get rating, runtime, and genres
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(2) > span:nth-child(1)')
-        certificate = elem[0].text.strip()
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(2) > span:nth-child(3)')
-        runtime = elem[0].text.strip()
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(2) > span:nth-child(5)')
-        genre = elem[0].text.strip()
-
-        #get description
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(4)')
-        desc = elem[0].text.strip()
-
-        #get cast and crew
-        elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(5)')
-        cast = elem[0].text.strip()
-
-        #elem = soup.select('div.lister-item:nth-child('+str(x)+') > div:nth-child(3) > p:nth-child(5) > a:nth-child(1)')
-        #director = elem[0].text.strip()
-
-        #test = cast.strip()
-        #print('Director: ' + director + ' | ' + cast)'''
-
-        #print info
-        print(title)
-        '''print(userRating + ' (' + userVotes + ' votes)\t' + metascore + ' Metascore')
-        print(certificate + ' | ' + runtime + ' | ' + genre)
-        print(desc)
-        print(cast)'''
-
-        print()
-
-//print(scrapeData())
+'''
+for testing
+movie = 'soul'
+#print(getMovieInfo(movie))
+movieInfo = getMovieInfo(movie)
+#stringMovieInfo(getMovieInfo(movie))
+#webPage = getWebpage('http://imdb.com')
+#getMovieTrailer('Soul')
+'''
+    
